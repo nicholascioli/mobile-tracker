@@ -1,0 +1,14 @@
+// Configuration file
+var path = require('path');
+
+var config = {
+	HOST: 'localhost',
+	PORT: '3000',
+	
+	CLIENTS: path.join(__dirname, 'clients.json'),
+	USER_ID: "Test Man <testman@test.me",
+	PRIV_KEY_FILE: path.join(__dirname, "..", "keys", "server.private.key"),
+	PUB_KEY_FILE: path.join(__dirname, "..", "keys", "server.public.key")
+};
+
+module.exports = config;
