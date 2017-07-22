@@ -5,25 +5,31 @@ var request = require('request');
 var fs = require('fs');
 var path = require('path');
 var conf = require(path.join(__dirname, "config.js"));
-var key = require(path.join(__dirname, "..", "key.js"));
+var Key = require(path.join(__dirname, "..", "key.js"));
+var prompt = require('prompt');
 
-var hostKey = undefined;
-var thisKey = undefined;
+var bodyParser = require('body-parser');
+var multer = require('multer');
+var upload = multer();
 
-var external_ip = undefined;
+var hostKey = null;
+var thisKey = null;
+
+var timeout = null;
+var external_ip = null;
+var last_ping = 0;
 
 module.exports.start = () => {
-	thisKey = key(conf, () => {
+	thisKey = new Key(conf, () => {
 		setup(); 
 		listen();
-		test();
-		// pollIp();
+		// test();
 	});
-}
+};
 
 function setup() {
 	// Attempt to load host key
-	fs.readFile(conf.HOST_KEY, (err, k) => {
+	fs.readFile(conf.HOST_KEY, (err, armored_key) => {
 		if (err) {
 			console.log("WARN: Host key not found. Contacting host...");
 			addSelf();
@@ -31,38 +37,102 @@ function setup() {
 			return;
 		}
 
-		hostKey = k;
+		thisKey.loadArmored("HOST", armored_key).then((k) => {
+			console.log("INFO: Loaded host key");
+			hostKey = k;
+		});
 	});
+
+	// Setup body parsing capabilitites
+	app.use(bodyParser.json()); // for parsing application/json
+	app.use(bodyParser.urlencoded({ extended: true })); // for parsing application/x-www-form-urlencoded
 
 	// Define express paths
 	app.get("/", (req, res) => {
 		res.sendStatus(200);
 	});
+
+	// Define a route for responding to the host's pings
+	app.post("/ping", upload.array(), (req, res) => {
+		if (!req.body || !req.body.msg) {
+			console.error("ERROR: Malformed request to ping");
+			res.status(400).send("ERROR: Malformed request to ping");
+		}
+
+		thisKey.dec({
+			msg: req.body.msg
+		}).then((decoded) => {
+			if (decoded[0].msg === "ping" && decoded[0].owner === Key.fingerprintOf(hostKey)) {
+				clearTimeout(timeout);
+				timeout = setTimeout(() => shouldUpdate(), conf.MAX_MS_INTERVAL);
+
+				res.sendStatus(200);
+			} else {
+				console.log("WARN: Someone other than the host has attempted to ping.");
+				res.sendStatus(400);
+			}
+		});
+	});
+
+	// Set client to inform server if it's been long enough
+	timeout = setTimeout(() => shouldUpdate(), conf.MAX_MS_INTERVAL);
+
+	// Start by updating the IP on the host side
+	getIp();
 }
 
 // Attempts to connect with host server to add self to list of clients
 function addSelf() {
-	thisKey.pub().then((k) => {
-		request.put(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME, { json: {
-			client: {
-				address: conf.HOST, 
-				port: conf.PORT,
-				pgp_pub: k,
-				last_update: Date.now()
+	var k = thisKey.pub();
+
+	// First get the RSA fingerprint of the server
+	request.get(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/fingerprint", {}, (err, res, body) => {
+		if (err) throw err;
+		if (!body) throw new Error("ERROR: Empty response from host");
+
+		console.log("Got host fingerprint of => " + body);
+		var fp = body;
+
+		// Make sure that fingerprints match
+		prompt.start();
+		prompt.get({
+			properties: {
+				agree: {
+					pattern: /^[yYnN]$/,
+					description: "Does the RSA fingerprint match the Host's? (y/n)",
+					required: true
+				}
 			}
-		}}, (err, res, body) => {
+		}, (err, res) => {
 			if (err) throw err;
+			if (res.agree !== 'y' && res.agree !== 'Y') throw new Error("ERROR: RSA Fingerprints do not match.");
 
-			if (res.statusCode !== 201) {
-				console.log("ERROR: (" + res.statusCode + ") Could not create client");
-				throw new Error();
-			}
-
-			fs.writeFile(conf.HOST_KEY, body, (err) => {
+			// If RSA fingerprints match, add self to host
+			request.put(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME, { json: {
+				client: {
+					pgp_pub: k,
+					last_update: Date.now()
+				}
+			}}, (err, res, body) => {
 				if (err) throw err;
 
-				console.log("Host key received from tracker");
-			})
+				if (res.statusCode !== 201) {
+					console.log("ERROR: (" + res.statusCode + ") Could not create client");
+					throw new Error();
+				}
+
+				thisKey.loadArmored("HOST", body).then((k) => {
+					if (fp !== key.fingerprintOf(k)) throw new Error("ERROR: Received public key does not match supplied fingerprint");
+
+					fs.writeFile(conf.HOST_KEY, body, (err) => {
+						if (err) throw err;
+
+						console.log("Host key received from tracker");
+						getIp();
+					});
+
+				});
+			});
 		});
 	});
 }
@@ -90,10 +160,14 @@ function listen() {
 	});
 }
 
-function pollIp() {
-	setInterval(() => {
+function shouldUpdate() {
+	console.log("WARN: Host has not ponged in a while, checking if IP has changed...");
+	if (!last_ping || Date.now() - last_ping > conf.POLL_MS_INTERVAL)
 		getIp();
-	}, 6 * 1000);
+
+	// Make sure to check again later
+	clearTimeout(timeout);
+	timeout = setTimeout(() => shouldUpdate(), conf.MAX_MS_INTERVAL);
 }
 
 function getIp() {
@@ -116,16 +190,21 @@ function getIp() {
 
 function updateAddress() {
 	console.log("INFO: Updating host");
-	request.post(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME, {
-		json: {
-			address: external_ip
-		}
-	}, (err, res, body) => {
-		if (err) throw err;
-		if (res.statusCode !== 202) {
-			console.log("ERROR: Could not update address")
-			throw new Error();
-		}
-		console.log("INFO: Response is '" + body + "'");
+	thisKey.enc({
+		msg: JSON.stringify({address: external_ip, port: conf.PORT}),
+		to: hostKey
+	}).then((encoded) => {
+		request.post(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME, {
+			json: {
+				msg: encoded.str
+			}
+		}, (err, res, body) => {
+			if (err) throw err;
+			if (res.statusCode !== 202) {
+				console.log("ERROR: Could not update address");
+				throw new Error();
+			}
+			console.log("INFO: Response is '" + body + "'");
+		});
 	});
 }

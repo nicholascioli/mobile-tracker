@@ -7,6 +7,8 @@
     "test": "tests"
   },
   "scripts": {
+    "server": "jslint '**/*.js' && node index.js server",
+    "client": "jslint '**/*.js' && node index.js client",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Nicholas Cioli",
@@ -20,5 +22,11 @@
     "prompt": "^1.0.0",
     "q": "^1.5.0",
     "request": "^2.81.0"
+  },
+  "devDependencies": {
+    "grunt": "^1.0.1",
+    "grunt-contrib-jshint": "^1.1.0",
+    "grunt-contrib-watch": "^1.0.0",
+    "jslint": "^0.11.0"
   }
 }
