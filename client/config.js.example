@@ -9,6 +9,8 @@ var config = {
 	MASTER_PORT: 3000,
 	
 	CLIENT_NAME: "SRV1",
+	MAX_MS_INTERVAL: 30 * 60 * 1000,
+
 	USER_ID: "Test Man <testman@test.me",
 	PRIV_KEY_FILE: path.join(__dirname, "..", "keys", "client.private.key"),
 	PUB_KEY_FILE: path.join(__dirname, "..", "keys", "client.public.key"),
