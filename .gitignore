@@ -3,6 +3,7 @@ node_modules/*
 config.js
 clients.json
 keys/*
+docs/*
 
 # Don't ignore the folder itself
 !keys/.gitkeep
