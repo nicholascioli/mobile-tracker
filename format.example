@@ -1,6 +1,0 @@
-client: {
-	address: "",
-	port: "",
-	pgp_pub: "",
-	last_update: ""
-}
