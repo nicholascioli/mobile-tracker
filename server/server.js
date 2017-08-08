@@ -1,3 +1,15 @@
+// server.js
+// ----------
+// The host server end of this solution.
+// 
+// The host opens up the following network endpoints
+// GET / : Returns a list of all known clients and their properties
+// GET /fingerprint : Returns the RSA fingerprint of the host's public PGP key
+// GET /client/:client : Returns the properties of a specific client (by name)
+// PUT /client/:client : Creates a new client based on the supplied options and returns the public
+//     key of the host.
+// POST /client/:client : Updates a specific client with the supplied options
+// DELETE /client/:client : Deletes a specific client <- TODO Either remove this or add authentication
 var express = require('express');
 var app = express();
 var path = require('path');
@@ -16,6 +28,7 @@ var nclean = require('node-cleanup');
 var Key = require(path.join(__dirname, "..", "key.js"));
 var thisKey = null;
 
+// Export a method to start this service
 module.exports.start = (cb) => {
 	setup(cb);
 	thisKey = new Key(conf, () => {
@@ -25,6 +38,7 @@ module.exports.start = (cb) => {
 			thisKey.loadFile(c, clients[c].pgp_pub);
 		}
 
+		// Make sure to start pinging clients as soon as possible
 		setTimeout(() => {
 			console.log("INFO: Pinging clients...");
 			pingAll();
@@ -35,11 +49,15 @@ module.exports.start = (cb) => {
 };
 
 // Helper method for sending errors
+// - res: Express response | The socket to send the error over
+// - code: Integer | The error code to send
+// - msg: String | The error message to send
 var err = (res, code, msg) => {
 	console.log(msg);
 	res.status(code).send(msg);
 };
 
+// Set up the server and its express endpoints
 function setup(cb) {
 	// Attempt to load clients from file
 	fs.readFile(conf.CLIENTS, (err, data) => {
@@ -141,6 +159,8 @@ function setup(cb) {
 
 			thisKey.loadArmored(client, clients[client].pgp_pub).then((k) => {
 				clients[client].fingerprint = Key.fingerprintOf(k);
+				setTimeout(() => ping(client, k), conf.POLL_MS_INTERVAL);
+
 				res.status(201).send(thisKey.pub()); // Created
 			});
 
@@ -183,6 +203,7 @@ function setup(cb) {
 	});
 
 	// Delete an existing client
+	// TODO: Either remove this or add authentication
 	app.delete("/client/:client", (req, res) => {
 		var client = req.params.client;
 
@@ -206,12 +227,15 @@ function setup(cb) {
 	});
 }
 
+// Starts the express server
 function listen() {
 	app.listen(conf.PORT, conf.HOST, () => {
 		console.log("Server listening on " + conf.HOST + ":" + conf.PORT);
 	});
 }
 
+// Populates an example client with specified overrides
+// - overrides: JSON | List of fields to override the defaults
 function populate(overrides) {
 	return {
 		address: null,
@@ -222,13 +246,16 @@ function populate(overrides) {
 	};
 }
 
+// Pings a client with client name alone
+// - c: String | The client to ping
 function ping(c) {
 	ping(c, thisKey.getKeyByName(c));
 }
 
+// Pings a client with specified name and KeyManager
+// - c: String | The client to ping
+// - k: KeyManager | The key of the specified client
 function ping(c, k) {
-	// console.log("PINGING: ", c);
-
 	thisKey.enc({
 		msg: "ping",
 		to: k
@@ -252,6 +279,7 @@ function ping(c, k) {
 	});
 }
 
+// Get ready to ping all available clients
 function pingAll() {
 	for (var c in clients) {
 		ping(c, thisKey.getKeyByName(c));

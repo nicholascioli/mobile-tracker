@@ -1,3 +1,8 @@
+// Deprecated, use grunt instead
+
+// index.js
+// ---------
+// A simple wrapper for starting either the server of client service of this solution
 var path = require('path');
 var server = require(path.join(__dirname, "server", "server.js"));
 var client = require(path.join(__dirname, "client", "client.js"));

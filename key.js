@@ -1,3 +1,8 @@
+// key.js
+// ---------
+// An object representation of a keybase.io PGP key.
+// This object also contains a PGP key ring which contains all of the known keys for 
+// decryption and verification sake.
 var pgp = require('kbpgp');
 
 var fs = require('fs');
@@ -17,7 +22,8 @@ module.exports = class key {
 		var _key = null;
 		var _pub = null;
 
-		// Private methods
+		// -- Private methods --
+		// Returns the armored PGP public key asynchronously
 		var getPub = () => {
 			var defer = q.defer();
 
@@ -35,6 +41,11 @@ module.exports = class key {
 			return defer.promise;
 		};
 
+		// Starts a user prompt for password entries, etc.
+		// - schema: JSON | A list of options to pass to the prompt.
+		//     refer to https://www.npmjs.com/package/prompt
+		// - callback: function | A function to call on completion of the prompt. Passed
+		//     the results of the prompt as a JSON where the key is the name of the option
 		var getPrompt = (schema, callback) => {
 			prompt.start();
 			prompt.get(schema, (err, result) => {
@@ -45,6 +56,10 @@ module.exports = class key {
 			});
 		};
 
+		// Generates an RSA key for use
+		// - conf: JSON | A list of config options. Refer to the example config file
+		// - callback: function | A function to call after successfull generation of a key. No
+		//     arguments are supplied to the callback.
 		var genKey = (conf, callback) => {
 			console.log("Generating kew key...");
 			pgp.KeyManager.generate_rsa({ userid : conf.USER_ID }, function(err, k) {
@@ -135,21 +150,26 @@ module.exports = class key {
 	}
 
 	// Returns the fingerprint of the supplied key
+	// - other_key: KeyManager | An instance of a KeyManager
 	static fingerprintOf(other_key) {
 		return other_key.get_pgp_fingerprint().toString('hex').match(/.{1,2}/g).join(':');
 	}
 
 	// Loads a PGP key from file
+	// - name: String | The name of the key to load (for unique reference querying)
+	// - file_path: String | The path to the key file to load
 	loadFile(name, file_path) {
 		var defer = q.defer();
 		var ring = this.ring();
 		var names = this.names();
 
+		// Make sure that the key to load is unique
 		if (names.hasOwnProperty(name)) {
 			console.log("ERROR: Key already exists in ring");
 			throw new Error();
 		}
 
+		// Load the file into memory / the keyring
 		fs.readFile(file_path, (err, data) => {
 			if (err) throw err;
 
@@ -166,6 +186,8 @@ module.exports = class key {
 	}
 
 	// Loads a PGP key from armored text
+	// - name: String | The name of the key to load (for unique reference querying)
+	// - armored_pgp: String | The armored PGP text of a public key
 	loadArmored(name, armored_pgp) {
 		var defer = q.defer();
 		var ring = this.ring();
@@ -187,9 +209,12 @@ module.exports = class key {
 		return defer.promise;
 	}
 
+	// Returns a KeyManager based on its unique name
+	// - name: String | The name of the key to return
 	getKeyByName(name) {
 		var names = this.names();
 
+		// Make sure that the key is in the keyring
 		if (!names.hasOwnProperty(name)) {
 			console.error("ERROR: Key by name '" + name + "' does not exist in this ring");
 			throw new Error();

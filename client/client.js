@@ -1,3 +1,9 @@
+// client.js
+// ----------
+// The client end of this solution
+// 
+// The client opens up the following endpoints:
+// POST /ping : Alerts the client that the host can see it (encrypted and verified by PGP)
 var express = require('express');
 var app = express();
 var request = require('request');
@@ -19,14 +25,15 @@ var timeout = null;
 var external_ip = null;
 var last_ping = 0;
 
+// Export a method to start this service
 module.exports.start = () => {
 	thisKey = new Key(conf, () => {
 		setup(); 
 		listen();
-		// test();
 	});
 };
 
+// Set up the client for use
 function setup() {
 	// Attempt to load host key
 	fs.readFile(conf.HOST_KEY, (err, armored_key) => {
@@ -40,6 +47,7 @@ function setup() {
 		thisKey.loadArmored("HOST", armored_key).then((k) => {
 			console.log("INFO: Loaded host key");
 			hostKey = k;
+			getIp();
 		});
 	});
 
@@ -48,10 +56,6 @@ function setup() {
 	app.use(bodyParser.urlencoded({ extended: true })); // for parsing application/x-www-form-urlencoded
 
 	// Define express paths
-	app.get("/", (req, res) => {
-		res.sendStatus(200);
-	});
-
 	// Define a route for responding to the host's pings
 	app.post("/ping", upload.array(), (req, res) => {
 		if (!req.body || !req.body.msg) {
@@ -74,11 +78,8 @@ function setup() {
 		});
 	});
 
-	// Set client to inform server if it's been long enough
+	// Set client to inform server if it has been long enough
 	timeout = setTimeout(() => shouldUpdate(), conf.MAX_MS_INTERVAL);
-
-	// Start by updating the IP on the host side
-	getIp();
 }
 
 // Attempts to connect with host server to add self to list of clients
@@ -86,12 +87,12 @@ function addSelf() {
 	var k = thisKey.pub();
 
 	// First get the RSA fingerprint of the server
-	request.get(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/fingerprint", {}, (err, res, body) => {
-		if (err) throw err;
-		if (!body) throw new Error("ERROR: Empty response from host");
+	request.get(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/fingerprint", {}, (rsa_err, rsa_res, rsa_body) => {
+		if (rsa_err) throw rsa_err;
+		if (!rsa_body) throw new Error("ERROR: Empty response from host");
 
-		console.log("Got host fingerprint of => " + body);
-		var fp = body;
+		console.log("Got host fingerprint of => " + rsa_body);
+		var fp = rsa_body;
 
 		// Make sure that fingerprints match
 		prompt.start();
@@ -103,9 +104,9 @@ function addSelf() {
 					required: true
 				}
 			}
-		}, (err, res) => {
-			if (err) throw err;
-			if (res.agree !== 'y' && res.agree !== 'Y') throw new Error("ERROR: RSA Fingerprints do not match.");
+		}, (prompt_err, answer) => {
+			if (prompt_err) throw err;
+			if (answer.agree !== 'y' && answer.agree !== 'Y') throw new Error("ERROR: RSA Fingerprints do not match.");
 
 			// If RSA fingerprints match, add self to host
 			request.put(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME, { json: {
@@ -113,21 +114,22 @@ function addSelf() {
 					pgp_pub: k,
 					last_update: Date.now()
 				}
-			}}, (err, res, body) => {
-				if (err) throw err;
+			}}, (req_err, req_res, pgp_body) => {
+				if (req_err) throw err;
 
-				if (res.statusCode !== 201) {
-					console.log("ERROR: (" + res.statusCode + ") Could not create client");
+				if (req_res.statusCode !== 201) {
+					console.log("ERROR: (" + req_res.statusCode + ") Could not create client");
 					throw new Error();
 				}
 
-				thisKey.loadArmored("HOST", body).then((k) => {
-					if (fp !== key.fingerprintOf(k)) throw new Error("ERROR: Received public key does not match supplied fingerprint");
+				thisKey.loadArmored("HOST", pgp_body).then((host_k) => {
+					if (fp !== Key.fingerprintOf(host_k)) throw new Error("ERROR: Received public key does not match supplied fingerprint");
 
-					fs.writeFile(conf.HOST_KEY, body, (err) => {
-						if (err) throw err;
+					fs.writeFile(conf.HOST_KEY, pgp_body, (fs_err) => {
+						if (fs_err) throw fs_err;
 
 						console.log("Host key received from tracker");
+						hostKey = host_k;
 						getIp();
 					});
 
@@ -137,29 +139,14 @@ function addSelf() {
 	});
 }
 
-function test() {
-	thisKey.enc({msg: "THIS IS a TEST", to: hostKey}).then((msg) => {
-		request.post(conf.MASTER_HOST + ":" + conf.MASTER_PORT + "/client/" + conf.CLIENT_NAME + "/secure", {
-			json: {
-				msg: msg.str 
-			}
-		}, (err, res, body) => {
-			if (err) throw err;
-
-			if (res.statusCode !== 200) {
-				console.log("ERROR: Could not test endpoint: " + body);
-				throw new Error();
-			}
-		});
-	});
-}
-
+// Start the express server
 function listen() {
 	app.listen(conf.PORT, conf.HOST, () => {
 		console.log("Listening");
 	});
 }
 
+// Check if the host should be informed of any updates to the client's IP
 function shouldUpdate() {
 	console.log("WARN: Host has not ponged in a while, checking if IP has changed...");
 	if (!last_ping || Date.now() - last_ping > conf.POLL_MS_INTERVAL)
@@ -170,6 +157,7 @@ function shouldUpdate() {
 	timeout = setTimeout(() => shouldUpdate(), conf.MAX_MS_INTERVAL);
 }
 
+// Attempt to get the client's IP using the Ipify public API
 function getIp() {
 	console.log("INFO: Getting IP");
 	request.get("https://api.ipify.org", {}, (err, res, body) => {
@@ -188,6 +176,7 @@ function getIp() {
 	});
 }
 
+// Update the host server of the client's new IP address
 function updateAddress() {
 	console.log("INFO: Updating host");
 	thisKey.enc({
