@@ -260,7 +260,7 @@ function ping(c, k) {
 		msg: "ping",
 		to: k
 	}).then((encoded) => {
-		request.post("http://localhost:" + clients[c].port + "/ping", { // Change me later to use the address
+		request.post(clients[c].address + ":" + clients[c].port + "/ping", {
 			json: {
 				msg: encoded.str
 			}
