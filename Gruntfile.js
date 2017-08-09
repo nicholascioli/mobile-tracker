@@ -1,8 +1,5 @@
 var path = require('path');
 
-var server = require(path.join(__dirname, 'server', 'server.js'));
-var client = require(path.join(__dirname, 'client', 'client.js'));
-
 module.exports = function (grunt) {
 	grunt.initConfig({
 		jshint: {
@@ -28,10 +25,12 @@ module.exports = function (grunt) {
 	grunt.registerTask('client', ['jshint', '__client']);
 	
 	grunt.registerTask('__server', 'Runs the server module of this project.', function () {
+		var server = require(path.join(__dirname, 'server', 'server.js'));
 		var done = this.async();
 		server.start(done);
 	});
 	grunt.registerTask('__client', 'Runs the client module of this project.', function () {
+		var client = require(path.join(__dirname, 'client', 'client.js'));
 		var done = this.async();
 		client.start(done);
 	});
