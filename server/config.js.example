@@ -6,7 +6,7 @@ var config = {
 	PORT: 3000,
 	
 	CLIENTS: path.join(__dirname, 'clients.json'),
-	POLL_MS_INTERVAL: 3 * 1000,
+	POLL_MS_INTERVAL: 30 * 60 * 1000,
 	
 	USER_ID: "Test Man <testman@test.me",
 	PRIV_KEY_FILE: path.join(__dirname, "..", "keys", "server.private.key"),
