@@ -61,7 +61,7 @@ module.exports = class key {
 		// - callback: function | A function to call after successfull generation of a key. No
 		//     arguments are supplied to the callback.
 		var genKey = (conf, callback) => {
-			console.log("Generating kew key...");
+			console.log("Generating new key '" + conf.USER_ID + "'");
 			pgp.KeyManager.generate_rsa({ userid : conf.USER_ID }, function(err, k) {
 				_ring.add_key_manager(k);
 				_key = k;
@@ -176,7 +176,7 @@ module.exports = class key {
 			pgp.KeyManager.import_from_armored_pgp({armored: data}, (err, k) => {
 				if (err) throw err;
 				ring.add_key_manager(k);
-				names[name] = k.get_ekid();
+				names[name] = k;
 				
 				defer.resolve(k);
 			});
@@ -201,12 +201,34 @@ module.exports = class key {
 		pgp.KeyManager.import_from_armored_pgp({armored: armored_pgp}, (err, k) => {
 			if (err) throw err;
 			ring.add_key_manager(k);
-			names[name] = k.get_ekid();
+			names[name] = k;
 
 			defer.resolve(k);
 		});
 
 		return defer.promise;
+	}
+
+	// Removes a key from the keyring
+	// - name: String | The name of the key to remove
+	// TODO: Find a way to remove keys from keyring without regenerating the ring every time
+	unload(name) {
+		var names = this.names();
+		var ring = this.ring();
+
+		if (!names.hasOwnProperty(name)) {
+			console.log("ERROR: Specified key is not in the keyring");
+			throw new Error();
+		}
+
+		// Remove the key
+		delete names[name];
+
+		// Regenerate the keyring
+		ring = new pgp.keyring.KeyRing();
+		for (var k in names) {
+			ring.add_key_manager(names[k]);
+		}
 	}
 
 	// Returns a KeyManager based on its unique name
@@ -220,7 +242,7 @@ module.exports = class key {
 			throw new Error();
 		}
 
-		return this.ring().lookup(names[name]);
+		return this.ring().lookup(names[name].get_ekid());
 	}
 
 	// Encryt message

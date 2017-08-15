@@ -8,10 +8,10 @@ var config = {
 	MASTER_HOST: 'http://localhost',
 	MASTER_PORT: 3000,
 	
-	CLIENT_NAME: "SRV1",
-	MAX_MS_INTERVAL: 30 * 60 * 1000,
+	CLIENT_NAME: "WIN1",
+	MAX_MS_INTERVAL: 35 * 60 * 1000,
 
-	USER_ID: "Test Man <testman@test.me",
+	USER_ID: "Test Man <test@test.test>",
 	PRIV_KEY_FILE: path.join(__dirname, "..", "keys", "client.private.key"),
 	PUB_KEY_FILE: path.join(__dirname, "..", "keys", "client.public.key"),
 	HOST_KEY: path.join(__dirname, "..", "keys", "host.public.key")

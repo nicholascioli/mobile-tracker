@@ -25,6 +25,11 @@ running a host and client on one machine would do the trick.
 * Automatic client updating based on polling
 
 ### Set Up
+First, rename the relevant `config.js.exmaple` to `config.js` and change the options to match your
+server / client setup. Second, provide a public key to use as the administrator verification key.
+(If you do not have a key, you can generate one [online](https://www.igolder.com/pgp/generate-key/)
+[not verified] or [locally](http://www.pitt.edu/~poole/accessiblePGP703.htm)).
+
 Make sure to have [grunt-cli](https://gruntjs.com/) installed for grunt usage. Otherwise, substitute
 the `grunt` command with `node index.js`. On first run, the solution will take a while to generate 
 an RSA key and then query you for a password. Although optional, it is highly recommended to supply 
@@ -42,9 +47,47 @@ npm install
 grunt server
 ```
 
+### Paths
+Below are a list of the paths used and their requirements / results
+
+#### Server
+* OPTIONS `/`
+
+	This path is special in that it is primarily reserved for admin use. As such, the server expects
+	requests to be encrypted and signed by the admin key specified in the configuration file and
+	presented in JSON format, with the following options:
+
+	`client`: The client to perform operations on. If this is not supplied, the server will return
+	a JSON representation of all of the clients registered.
+
+	`op`: The operation to apply. Can be `GET` for information retrieval or `DELETE` for deletion.
+
+* GET `/fingerprint`
+
+	Returns the PGP fingerprint of the server's key, which can be used for
+	verification. (Note, the server also logs the fingerprint to console whenever
+	this path is accessed. Feel free to use that output to ensure that the fingerprint
+	is correct).
+
+* PUT `/client/:client`
+
+	Creates a new client by the name of `:client` and returns the server's public
+	key so the client can then encrypt all further messages. Will also write the
+	key of the client to file at `keys/:client.pub`.
+
+* POST `/client/:client`
+
+	Updates the specified client with the supplied information. The server requires
+	the supplied information to be encrypted and signed by the client.
+
+#### Client
+* POST `/ping`
+
+	Responds with status code 200 if the incoming ping is encrypted and signed by
+	the host server specified in the configuration file.
+
 ### TODO
 * Find a more elegant solution for tracking rather than polling
-* Add some sort of security verification for viewing all clients on a host server
 * Rewrite entire solution in TypeScript
 * Write better documentation using JSDoc
 * Improve console messages

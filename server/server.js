@@ -3,13 +3,11 @@
 // The host server end of this solution.
 // 
 // The host opens up the following network endpoints
-// GET / : Returns a list of all known clients and their properties
+// OPTIONS / : Returns a list of all known clients and their properties
 // GET /fingerprint : Returns the RSA fingerprint of the host's public PGP key
-// GET /client/:client : Returns the properties of a specific client (by name)
 // PUT /client/:client : Creates a new client based on the supplied options and returns the public
 //     key of the host.
 // POST /client/:client : Updates a specific client with the supplied options
-// DELETE /client/:client : Deletes a specific client <- TODO Either remove this or add authentication
 var express = require('express');
 var app = express();
 var path = require('path');
@@ -27,11 +25,18 @@ var nclean = require('node-cleanup');
 
 var Key = require(path.join(__dirname, "..", "key.js"));
 var thisKey = null;
+var adminKey = null;
 
 // Export a method to start this service
 module.exports.start = (cb) => {
 	setup(cb);
 	thisKey = new Key(conf, () => {
+		// Load the admin key
+		thisKey.loadFile("_ADMIN_", conf.ADMIN_PUB_KEY_FILE).then((k) => {
+			console.log("  Loaded Admin Key");
+			adminKey = k;	
+		});
+		
 		// Read in all public keys
 		for (var c in clients) {
 			console.log("INFO: Loading key '" + c + "'");
@@ -94,21 +99,52 @@ function setup(cb) {
 						res.sendStatus(403);
 					} else {
 						req.dec_msg = msg;
+						req.is_secure = true;
 						next();
 					}
 				});
-			} catch (err) {
-				console.error("ERROR: Could not decode message. Ignoring");
-				res.status(501).send("ERROR: Could not decode message. Ignoring");
+			} catch (error) {
+				err(res, 501, "ERROR: Could not decode message. Ignoring");
 			}
 		} else {
+			req.is_secure = false;
 			next();
 		}
 	});
 
 	// Return list of clients whith GET
-	app.get("/", (req, res) => {
-		res.send(clients);
+	app.options("/", upload.array(), (req, res) => {
+		if (req.body && req.body.hasOwnProperty("msg")) {
+			try {
+				thisKey.dec({
+					msg: req.body.msg
+				}).then((msg) => {
+					// Make sure that the message is from the sender
+					if (msg[0].owner !== Key.fingerprintOf(adminKey)) {
+						console.error("ERROR: Non-admin attempt to get clients");
+						res.sendStatus(403);
+					} else {
+						var jmsg = JSON.parse(msg[0].msg);
+						if (jmsg.client) {
+							switch (jmsg.op) {
+								case "GET":
+									res.send(clients[jmsg.client]); break;
+								case "DELETE":
+									del(res, jmsg.client); break;
+								default:
+									err(res, 400, "ERROR: Malformed request");
+							}
+						} else {
+							res.send(clients);
+						}
+					}
+				});
+			} catch (error) {
+				err(res, 501, "ERROR: Could not decode message. Ignoring");
+			}
+		} else {
+			err(res, 400, "ERROR: Malformed request");
+		}
 	});
 
 	// Get the server's RSA fingerprint for verification purposes
@@ -118,23 +154,6 @@ function setup(cb) {
 		console.log("  => " + fp);
 
 		res.send(fp);
-	});
-
-	// Get a specific client
-	app.get("/client/:client", (req, res) => {
-		var client = req.params.client;
-
-		if (!client) {
-			err(res, 400, "ERROR: No client specified");
-			return;
-		}
-
-		if (!clients.hasOwnProperty(client)) {
-			err(res, 400, "ERROR: Specified client does not exist");
-			return;
-		}
-
-		res.send(clients[client]);
 	});
 
 	// Create new client with PUT
@@ -174,6 +193,11 @@ function setup(cb) {
 		var client = req.params.client;
 		var msg = req.dec_msg;
 
+		if (!req.is_secure) {
+			err(res, 403, "ERROR: Not authorized");
+			return;
+		}
+
 		if (!client) {
 			err(res, 400, "ERROR: No client specified");
 			return;
@@ -201,30 +225,28 @@ function setup(cb) {
 		clients[client].last_update = Date.now();
 		res.sendStatus(202); // accepted
 	});
+}
 
-	// Delete an existing client
-	// TODO: Either remove this or add authentication
-	app.delete("/client/:client", (req, res) => {
-		var client = req.params.client;
+// Delete an existing client
+function del (res, client) {
+	if (!client) {
+		err(res, 400, "ERROR: No client specified");
+		return;
+	}
 
-		if (!client) {
-			err(res, 400, "ERROR: No client specified");
-			return;
-		}
+	if (!clients.hasOwnProperty(client)) {
+		err(res, 400, "ERROR: Specified client does not exist");
+		return;
+	}
 
-		if (!clients.hasOwnProperty(client)) {
-			err(res, 400, "ERROR: Specified client does not exist");
-			return;
-		}
-
-		// Delete the PGP file on hand
-		fs.unlink(path.join(__dirname, "..", "keys", client + ".pub"), (err) => {
-			if (err) throw err;
-		});
-
-		delete clients[client];
-		res.sendStatus(200);
+	// Delete the PGP file on hand
+	fs.unlink(path.join(__dirname, "..", "keys", client + ".pub"), (err) => {
+		if (err) throw err;
 	});
+
+	thisKey.unload(client);
+	delete clients[client];
+	res.sendStatus(200);
 }
 
 // Starts the express server
